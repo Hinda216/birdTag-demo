@@ -1,0 +1,6 @@
+tensorflow
+numpy
+soundfile
+tqdm
+requests
+boto3

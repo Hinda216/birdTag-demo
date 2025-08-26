@@ -1,0 +1,11 @@
+boto3
+numpy
+requests
+soundfile
+tensorflow
+tqdm
+roboflow 
+ultralytics 
+supervision
+opencv-python
+matplotlib

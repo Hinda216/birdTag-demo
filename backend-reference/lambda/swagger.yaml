@@ -1,0 +1,331 @@
+openapi: 3.0.0
+info:
+  title: BirdTag API
+  version: v1.0.0
+  description: |-
+    API for the BirdTag system, allowing users to query media files based on tags and other criteria.
+    Developed for Monash Birdy Buddies (MBB). 
+    The system leverages AWS services like S3, Lambda, API Gateway, and DynamoDB. 
+    Authentication is handled via AWS Cognito.
+servers:
+  - url: https://{your-api-gateway-id}.execute-api.{region}.amazonaws.com/{stage}
+    variables:
+      your-api-gateway-id:
+        default: xxx
+        description: Your API Gateway ID
+      region:
+        default: us-east-1
+        description: The AWS region
+      stage:
+        default: dev
+        description: The deployment stage (e.g., dev, prod)
+components:
+  schemas:
+    FileUrlListResponse:
+      type: object
+      properties:
+        links:
+          type: array
+          items:
+            type: string
+            format: url
+            description: "URL to a thumbnail image or a full video/audio file. "
+          description: "A list of S3 URLs for the media files. "
+    StartUploadRequest:
+      type: object
+      properties:
+        contentType:
+          type: string
+          description: "The MIME (content type) of the file to be uploaded. "
+    StartUploadResponse:
+      type: object
+      properties:
+        uploadUrl:
+          type: string
+          format: url
+          description: "The S3 URL of the uploaded file. "
+        filePath:
+          type: string
+          description: "The batch ID of the uploaded file. "
+    ThumbnailUrlRequest:
+      type: object
+      required:
+        - thumbnailUrl
+      properties:
+        thumbnailUrl:
+          type: string
+          format: url
+          description: "The S3 URL of the thumbnail image. "
+    FullSizeImageUrlResponse:
+      type: object
+      required:
+        - fullSizeUrl
+      properties:
+        fullSizeUrl:
+          type: string
+          format: url
+          description: "The S3 URL of the full-size image. "
+    ManualTagOperationRequest:
+      type: object
+      required:
+        - urls
+        - operation
+        - tags
+      properties:
+        urls:
+          type: array
+          items:
+            type: string
+            format: url
+          description: "List of S3 URLs of the files to be tagged or untagged. "
+        operation:
+          type: integer
+          enum: [0, 1]
+          description: "1 for adding tags, 0 for removing tags. "
+        tags:
+          type: array
+          items:
+            type: string
+          description: "The tags to add or remove, with counts. "
+    DeleteFilesRequest:
+      type: object
+      required:
+        - urls
+      properties:
+        urls:
+          type: array
+          items:
+            type: string
+            format: url
+          description: "A list of S3 URLs of the files to be deleted. "
+    GeneralStatusResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          description: "A message indicating the status of the operation."
+        details:
+          type: string
+          nullable: true
+          description: Optional details about the operation.
+
+    SearchFileTagsResponse:
+      type: object
+      properties:
+        tags:
+          type: object
+          additionalProperties:
+            type: integer
+          description: "A dictionary of tags found in the file. The key is the tag, and the value is the count of the tag. "
+
+paths:
+  /api/search:
+    get:
+      tags:
+        - Search
+      summary: Find images and videos based on the tags
+      description: |-
+        Requests URLs of files using GET parameters. Example format: ?tags=crow:3,pigeon:1
+        This is an alternative to the POST request. The prompt mentions "?tag1=crow&count1=1&tag2=pigeon&count2=2",
+        which is harder to represent for a variable number of tags. This implementation uses a comma-separated list for 'tags'.
+        The query performs a logical AND operation between tags.
+      parameters:
+        - name: tag1
+          in: query
+          required: true
+          description: The first tag
+          schema:
+            type: string
+        - name: count1
+          in: query
+          required: false
+          description: The count for the first tag
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+        - name: tag2
+          in: query
+          required: false
+          description: The second tag
+          schema:
+            type: string
+        - name: count2
+          in: query
+          required: false
+          description: The count for the second tag
+          schema:
+            type: integer
+            default: 1
+            minimum: 1
+        # support more tags with more parameters
+      responses:
+        "200":
+          description: A list of S3 URLs for matching thumbnails and videos.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileUrlListResponse"
+        "400":
+          description: Invalid query format.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeneralStatusResponse"
+
+  /api/search_by_file:
+    post:
+      summary: Find files based on the tags of a file
+      description: |-
+        Submits a JSON-based query to request URLs of files (thumbnails for images, full URLs for videos)
+        that contain specific bird species with minimum counts.
+        The query performs a logical AND operation between tags.
+      tags:
+        - Search
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StartUploadRequest"
+      responses:
+        "200":
+          description: Tags successfully updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StartUploadResponse"
+        "400":
+          description: Invalid query format.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeneralStatusResponse"
+    get:
+      parameters:
+        - name: filename
+          in: query
+          required: true
+          description: The filename of the uploaded file.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: tag
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SearchFileTagsResponse"
+  /api/file:
+    get:
+      tags:
+        - Image
+      summary: Find files based on the thumbnail's URL
+      description: |-
+        Requests the S3 URL of the full-size image from a thumbnail URL.
+        The thumbnail URL is provided in the GET parameters.
+      parameters:
+        - name: thumbnailUrl
+          in: query
+          required: true
+          description: The S3 URL of the thumbnail image.
+          schema:
+            $ref: "#/components/schemas/ThumbnailUrlRequest"
+      responses:
+        "200":
+          description: The S3 URL of the full-size image.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FullSizeImageUrlResponse"
+        "400":
+          description: Invalid query format.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeneralStatusResponse"
+    delete:
+      summary: Delete an image
+      tags:
+        - Image
+      description: |-
+        The user can send a list of URLs to an API, and the system should remove the files
+        and their thumbnails (in case of images) from S3, and all relevant entries from the database.
+        if file is not found, it should be ignored.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeleteFilesRequest"
+            examples:
+              deleteMultiple:
+                value:
+                  urls:
+                    - "https://xxx.s3.amazonaws.com/image1-thumb.png"
+                    - "https://xxx.s3.amazonaws.com/image60-thumb.png"
+                    - "https://xxx.s3.amazonaws.com/image23-thumb.png"
+                    - "https://xxx.s3.amazonaws.com/video5.mp4"
+                    - "https://xxx.s3.amazonaws.com/image1-full.png" # Assuming full images also need to be listed if not auto-deleted with thumbnail
+      responses:
+        "204":
+          description: The files were successfully deleted.
+        "400":
+          description: Invalid request format.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeneralStatusResponse"
+        "404":
+          description: all files specified in URLs not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeneralStatusResponse"
+
+  /api/tags:
+    post:
+      summary: Manually add or remove tags from specified files (bulk tagging).
+      description: "Allows end-users to add or remove tags from a list of files. "
+      tags:
+        - Tag Management
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ManualTagOperationRequest"
+            examples:
+              addTags:
+                summary: Add tags to multiple files
+                value:
+                  urls:
+                    - "https://xxx.s3.amazonaws.com/image1-thumb.png"
+                    - "https://xxx.s3.amazonaws.com/image60-thumb.png"
+                  operation: 1
+                  tags:
+                    - "crow,1"
+                    - "pigeon,2"
+              removeTags:
+                summary: Remove tags from a file
+                value:
+                  urls:
+                    - "https://xxx.s3.amazonaws.com/image23-thumb.png"
+                  operation: 0
+                  tags:
+                    - "pigeon,2"
+      responses:
+        "200":
+          description: Tags successfully updated.
+        "400":
+          description: Invalid request format.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeneralStatusResponse"
+        "404":
+          description: all files specified in URLs not found.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeneralStatusResponse"
